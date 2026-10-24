@@ -59,6 +59,7 @@ def norm(p):
     except InvalidOperation:pass
     break
  name=next((p[k].strip() for k in ("name","title","product_name") if isinstance(p.get(k),str) and p[k].strip()),"")
+ if len(name)>68:return None  # avoid unreadable three-line product cards
  price=money(p.get("sale_price")) or money(p.get("price"))
  picture=None
  for k in ("thumb","image_url","image","thumbnail","images","product_images","photos"):
@@ -74,11 +75,12 @@ def norm(p):
  return {"id":str(p["id"]),"name":name,"price":price,"image":picture,
   "search":(name+" "+" ".join(labels)).lower(),
   "savings":cats is not None and SAVINGS_ID in cats}
-def choose(products,year,week):
+def choose(products,year,week,exclude=None):
+ exclude=exclude or set()
  unique={}
  for p in (products.values() if isinstance(products,dict) else products):
   item=norm(p)
-  if item:unique[item["id"]]=item
+  if item and item["id"] not in exclude:unique[item["id"]]=item
  eligible=list(unique.values())
  random.Random(f"alshaheer-{year}-W{week:02d}").shuffle(eligible)
  used=set(); sections=[]
@@ -123,8 +125,7 @@ def download_image(url):
  req=Request(url,headers={"User-Agent":"Mozilla/5.0 (Alshaheer Magazine)"})
  with urlopen(req,timeout=18) as r:
   c=r.headers.get("content-type","").lower().split(";")[0]
-  if c not in ("image/jpeg","image/png","image/webp","image/avif","application/octet-stream"):
-   raise ValueError("Unexpected image content type")
+  # Easy Orders CDN may use a generic content type; let Pillow validate the bytes.
   raw=r.read(6000001)
  if len(raw)>6000000:raise ValueError("Image too large")
  with Image.open(io.BytesIO(raw)) as obj:return ImageOps.exif_transpose(obj).convert("RGB")
@@ -184,12 +185,19 @@ def endpage():
 def generate(products,out=OUT,now=None,loader=download_image):
  now=now or datetime.now(timezone.utc)
  year,week,_=now.isocalendar();issue=f"{year}-{week:02d}"
- sections,stats=choose(products,year,week)
- chosen=[p for _,v in sections for p in v]
- pics={}
- for p in chosen:
-  try:pics[p["id"]]=loader(p["image"])
-  except Exception as exc:raise RuntimeError(f"Cannot load image for product {p['id']}: {type(exc).__name__}") from None
+ pics={}; excluded=set()
+ for attempt in range(25):
+  sections,stats=choose(products,year,week,excluded)
+  chosen=[p for _,v in sections for p in v]
+  failures=[]
+  for p in chosen:
+   if p["id"] in pics:continue
+   try:pics[p["id"]]=loader(p["image"])
+   except Exception as exc:
+    failures.append(p["id"]); excluded.add(p["id"])
+    print("SKIP broken product image",p["id"],type(exc).__name__,str(exc)[:85],flush=True)
+  if not failures:break
+ else:raise RuntimeError("More than 24 image failures; refusing incomplete issue")
  if not features.check("raqm"):raise RuntimeError("Arabic text shaping unavailable: libraqm required")
  imgs=[cover(issue)]
  for i,(label,items) in enumerate(sections,start=2):imgs.append(product_page(label,items,issue,i,pics))
