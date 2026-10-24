@@ -24,7 +24,7 @@ SECTIONS=[
  ("منتجات الثلاجة والألبان",("ثلاجة","جبن","لانشون","مخلل","ألبان","البان","لبن","زبادي","زبادى","بسطرم")),
  ("السلع الأساسية",("أرز","ارز","رز ","سكر","زيت","سمن","مكرون","دقيق","عدس","فول","بقول","ملح")),
  ("المشروبات والحلويات",("مشروب","عصير","مياه","غازية","بسكوت","شيبسي","شيبسى","شوكولات","حلويات","بوري","أوريو","كاراتيه","شاي","شاى","قهوة")),
- ("المجمدات والمتنوع",("مجمد","برجر","ستربس","استربس","فراخ","دجاج","فروزن","سجق","بسمة","بطاطس","لحوم","فريزر")),
+ ("المجمدات والمتنوع",("مجمد","برجر","ستربس","استربس","فراخ","دجاج","فروزن","سجق","لحوم","فريزر","بانيه","بانية","شيش طاووق","كفتة","ناغتس","كوردن","كبدة","جمبرى","جمبري","سمك","ناجتس")),
 ]
 def font(n,bold=False):
  return ImageFont.truetype(BOLD if bold else FONT,n)
@@ -88,7 +88,7 @@ def choose(products,year,week,exclude=None):
   if terms==("savings",):
    candidates=[p for p in eligible if p["savings"] and p["id"] not in used]
   else:
-   candidates=[p for p in eligible if p["id"] not in used and any(t in p["search"] for t in terms)]
+   candidates=[p for p in eligible if p["id"] not in used and any(t in p["name"].lower() for t in terms)]
   if len(candidates)<6:raise ValueError(f"Not enough products for {label}: {len(candidates)} (need 6)")
   group=candidates[:6]
   used.update(p["id"] for p in group)
