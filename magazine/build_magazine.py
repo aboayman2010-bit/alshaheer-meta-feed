@@ -212,7 +212,18 @@ def generate(products,out=OUT,now=None,loader=download_image):
 def main():
  key=os.getenv("EASYORDERS_API_KEY","").strip()
  if not key:raise RuntimeError("Missing EASYORDERS_API_KEY")
- generate(read_products(key))
+ products=read_products(key)
+ from collections import Counter
+ rows=list(products.values())
+ savings=[p for p in rows if (membership(p) is not None and SAVINGS_ID in membership(p))]
+ print("SCHEMA all keys:", sorted(set().union(*(p.keys() for p in rows[:100]))),flush=True)
+ print("SCHEMA confirmed savings raw:",len(savings),flush=True)
+ for label,items in (("all",rows),("savings",savings)):
+  for field in ("name","title","thumb","image","image_url","images","product_images","thumbnail","price","sale_price","quantity","stock","available","is_hidden","is_active","visible"):
+   present=[p.get(field) for p in items if p.get(field) is not None]
+   count_types=Counter(type(v).__name__ for v in present)
+   print("FIELD",label,field,len(present),dict(count_types),flush=True)
+ generate(products)
 if __name__=="__main__":
  try:main()
  except Exception as e:
