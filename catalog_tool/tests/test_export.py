@@ -27,7 +27,7 @@ class CatalogTests(unittest.TestCase):
             product("6", "No stock tracking", track_stock=False, quantity=0),
             product("7", "Uncertain visibility", hidden=None),
             product("8", "Multiple categories", categories=[FRIDGE, SPICES]),
-        ])
+        ], public_ids={"1", "2", "3", "4", "5", "6", "7", "8"})
         self.assertTrue(rows["1"]["magazine_eligible"])
         self.assertTrue(rows["6"]["magazine_eligible"])
         self.assertTrue(rows["8"]["magazine_eligible"])
@@ -37,10 +37,18 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(rows["7"]["status"], "unknown")
         self.assertEqual(len(catalog), 2)
 
+    def test_no_public_proof_blocks_all_magazine_products(self):
+        _, rows = evaluate([product("1", "Apparently visible")])
+        self.assertFalse(rows["1"]["magazine_eligible"])
+        self.assertIn("public_listing_unverified", rows["1"]["reasons"])
+        _, checked = evaluate([product("1", "Apparently visible")], public_ids={"other-id"})
+        self.assertFalse(checked["1"]["magazine_eligible"])
+        self.assertIn("not_on_public_listing", checked["1"]["reasons"])
+
     def test_audit_includes_hidden_but_magazine_does_not(self):
         with tempfile.TemporaryDirectory() as folder:
             export([product("1", "Published"), product("2", "Secret", hidden=True),
-                    product("3", "Spice", categories=[SPICES])], folder)
+                    product("3", "Spice", categories=[SPICES])], folder, public_ids={"1", "2", "3"})
             cats = json.loads((Path(folder) / "categories.json").read_text())
             fridge = next(c for c in cats if c["slug"] == "fridge")
             self.assertEqual(fridge["total"], 2)
