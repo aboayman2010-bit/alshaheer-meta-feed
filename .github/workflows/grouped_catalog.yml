@@ -1,0 +1,40 @@
+name: Grouped EasyOrders Catalog Export
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'catalog_tool/**'
+      - '.github/workflows/grouped_catalog.yml'
+  schedule:
+    - cron: '17 3 * * *'
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test hidden product safeguards
+        run: python -m unittest discover -s catalog_tool/tests -v
+      - name: Export categories and magazine-safe products
+        env:
+          EASYORDERS_API_KEY: ${{ secrets.EASYORDERS_API_KEY }}
+        run: python catalog_tool/export.py
+      - name: Prepare public-safe review package without hidden product names
+        run: |
+          mkdir -p catalog_public_export
+          cp catalog_export_output/summary.json catalog_public_export/
+          cp catalog_export_output/categories.csv catalog_public_export/
+          cp catalog_export_output/categories.json catalog_public_export/
+          cp -R catalog_export_output/magazine_ready catalog_public_export/
+      - name: Upload magazine-safe report
+        uses: actions/upload-artifact@v4
+        with:
+          name: grouped-catalog-magazine-safe
+          path: catalog_public_export/
+          retention-days: 14
+          if-no-files-found: error
