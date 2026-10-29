@@ -24,10 +24,17 @@ jobs:
         env:
           EASYORDERS_API_KEY: ${{ secrets.EASYORDERS_API_KEY }}
         run: python catalog_tool/export.py
-      - name: Save downloadable review files
+      - name: Prepare public-safe review package without hidden product names
+        run: |
+          mkdir -p catalog_public_export
+          cp catalog_export_output/summary.json catalog_public_export/
+          cp catalog_export_output/categories.csv catalog_public_export/
+          cp catalog_export_output/categories.json catalog_public_export/
+          cp -R catalog_export_output/magazine_ready catalog_public_export/
+      - name: Upload magazine-safe report
         uses: actions/upload-artifact@v4
         with:
-          name: grouped-catalog-review
-          path: catalog_export_output/
+          name: grouped-catalog-magazine-safe
+          path: catalog_public_export/
           retention-days: 14
           if-no-files-found: error
