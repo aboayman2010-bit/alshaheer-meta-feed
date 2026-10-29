@@ -89,7 +89,11 @@ def stock(p):
     except Exception:
         return "unknown"
 
-def evaluate(rows):
+def evaluate(rows, public_ids=None):
+    # An API-visible flag alone does NOT prove the item appears in the storefront.
+    # A verified published-product ID set is mandatory for magazine eligibility.
+    if public_ids is not None:
+        public_ids = set(map(str, public_ids))
     catalog, products = {}, {}
     for p in rows:
         if not isinstance(p, dict) or not p.get("id"):
@@ -114,6 +118,10 @@ def evaluate(rows):
         if not price: reasons.append("price_invalid")
         if not url: reasons.append("image_missing")
         if not complete or not members: reasons.append("category_unverified")
+        if public_ids is None:
+            reasons.append("public_listing_unverified")
+        elif pid not in public_ids:
+            reasons.append("not_on_public_listing")
         products[pid] = {
             "id": pid, "name": name, "price": p.get("price"), "sale_price": p.get("sale_price"),
             "display_price": str(price) if price else "", "image_url": url,
@@ -135,12 +143,12 @@ def save_csv(path, records, keys=FIELDS):
                 if isinstance(row.get(key), list): row[key] = " | ".join(row[key])
             writer.writerow(row)
 
-def export(raw, output=OUTPUT):
+def export(raw, output=OUTPUT, public_ids=None):
     output = Path(output)
     audit_dir, magazine_dir = output / "audit_all", output / "magazine_ready"
     audit_dir.mkdir(parents=True, exist_ok=True)
     magazine_dir.mkdir(parents=True, exist_ok=True)
-    catalog, products = evaluate(raw.values() if isinstance(raw, dict) else raw)
+    catalog, products = evaluate(raw.values() if isinstance(raw, dict) else raw, public_ids=public_ids)
     all_rows = sorted(products.values(), key=lambda p: (p["name"].casefold(), p["id"]))
     categories = []
     for cid, c in sorted(catalog.items(), key=lambda v: (v[1]["name"].casefold(), v[0])):
@@ -160,6 +168,8 @@ def export(raw, output=OUTPUT):
             save_csv(directory / (stem + ".csv"), selection)
     summary = {"generated_utc": datetime.now(timezone.utc).isoformat(),
                "products": len(all_rows), "categories": len(categories),
+               "publication_verified": public_ids is not None,
+               "published_ids_reference_count": len(public_ids) if public_ids is not None else None,
                "visible": sum(p["status"] == "visible" for p in all_rows),
                "hidden": sum(p["status"] == "hidden" for p in all_rows),
                "unknown_visibility": sum(p["status"] == "unknown" for p in all_rows),
@@ -174,7 +184,35 @@ def export(raw, output=OUTPUT):
     print("READ_ONLY_EXPORT_DONE", json.dumps(summary, ensure_ascii=False))
     return summary
 
+def load_public_ids(path):
+    """Read an independently verified public catalog ID export (CSV, JSON, or RSS XML)."""
+    import xml.etree.ElementTree as ET
+    file = Path(path)
+    if not file.is_file():
+        raise ValueError("Public storefront verification file does not exist")
+    if file.suffix.lower() == ".json":
+        data = json.loads(file.read_text(encoding="utf-8-sig"))
+        items = data.get("products", data.get("ids", [])) if isinstance(data, dict) else data
+        ids = {str(row.get("id") if isinstance(row, dict) else row) for row in items}
+    elif file.suffix.lower() == ".csv":
+        with file.open(encoding="utf-8-sig", newline="") as handle:
+            ids = {str(row.get("id", "")).strip() for row in csv.DictReader(handle)}
+    elif file.suffix.lower() == ".xml":
+        root = ET.parse(file).getroot()
+        ids = {str(item.findtext("{http://base.google.com/ns/1.0}id") or "").strip()
+               for item in root.iter("item")}
+    else:
+        raise ValueError("Public storefront proof must be CSV, JSON, or XML")
+    ids.discard("")
+    ids.discard("None")
+    # Sanity range, not an artificial hard limit on product selection.
+    if not 700 <= len(ids) <= 1800:
+        raise ValueError(f"Unexpected public product count: {len(ids)}; verify listing source")
+    return ids
+
 if __name__ == "__main__":
     key = os.environ.get("EASYORDERS_API_KEY", "").strip()
     if not key: raise RuntimeError("EASYORDERS_API_KEY missing from secrets")
-    export(read_products(key))
+    proof_path = os.getenv("PUBLIC_VISIBLE_IDS_FILE", "").strip()
+    confirmed = load_public_ids(proof_path) if proof_path else None
+    export(read_products(key), public_ids=confirmed)
