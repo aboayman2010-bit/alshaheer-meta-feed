@@ -1,0 +1,69 @@
+name: Fridge Category Inventory Audit
+on:
+  push:
+    paths:
+      - '.github/workflows/fridge_inventory_report.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit exact fridge category membership (read only)
+        env:
+          EASYORDERS_API_KEY: ${{ secrets.EASYORDERS_API_KEY }}
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          from export_feed import read_products
+          if not os.getenv("EASYORDERS_API_KEY"):
+              raise RuntimeError("API key not configured")
+          rows = read_products(os.environ["EASYORDERS_API_KEY"])
+          cat_by_id = {}
+          for p in rows.values():
+              if not isinstance(p,dict): continue
+              for c in p.get("categories",[]) or []:
+                  if isinstance(c,dict) and c.get("id"):
+                      cat_by_id[str(c["id"])] = {"slug":str(c.get("slug") or ""),"name":str(c.get("name") or "")}
+          found = {cid:v for cid,v in cat_by_id.items() if "fridge" in v["slug"].casefold()}
+          print("AUDIT_TIMESTAMP_UTC|" + __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat())
+          print("SOURCE_PRODUCTS|" + str(len(rows)))
+          print("FRIDGE_CATEGORIES|" + json.dumps(found,ensure_ascii=False))
+          if not found:
+              print("CATEGORY_NOT_FOUND|all_slugs=" + json.dumps(sorted(set(v["slug"] for v in cat_by_id.values())),ensure_ascii=False))
+              raise RuntimeError("No category slug containing fridge returned by API")
+          selected,unresolved=[],[]
+          for p in rows.values():
+              cats=p.get("categories",p.get("Categories"))
+              ids=set()
+              if isinstance(cats,list):
+                  for c in cats:
+                      if isinstance(c,dict) and c.get("id"): ids.add(str(c["id"]))
+                      elif isinstance(c,str): ids.add(c)
+              pc=p.get("parsed_categories")
+              if isinstance(pc,list):
+                  ids.update(str(c) for c in pc if isinstance(c,str))
+              for key in ("category_id","categoryId"):
+                  if p.get(key): ids.add(str(p[key]))
+              if not ids:
+                  unresolved.append(str(p.get("id")))
+              if any(cid in ids for cid in found):
+                  selected.append(p)
+          selected.sort(key=lambda x:(str(x.get("name") or x.get("title") or "").casefold(),str(x.get("id") or "")))
+          visible=[x for x in selected if not any(x.get(k) is True for k in ("hidden","is_hidden","deleted","is_deleted","archived")) and not any(x.get(k) is False for k in ("is_active","active","is_visible","visible"))]
+          print("FRIDGE_ALL_COUNT|" + str(len(selected)))
+          print("FRIDGE_VISIBLE_COUNT|" + str(len(visible)))
+          print("FRIDGE_HIDDEN_COUNT|" + str(len(selected)-len(visible)))
+          print("UNRESOLVED_PRODUCTS_WITHOUT_CATEGORY_IDS|" + str(len(unresolved)))
+          for i,p in enumerate(selected,1):
+              name=p.get("name") or p.get("title") or p.get("product_name") or ""
+              is_hidden = p not in visible
+              print("FRIDGE_ITEM|" + json.dumps({"n":i,"name":name,"id":p.get("id"),"hidden":is_hidden,"quantity":p.get("quantity"),"track_stock":p.get("track_stock")},ensure_ascii=False))
+          print("FRIDGE_END|" + str(len(selected)))
+          PY
