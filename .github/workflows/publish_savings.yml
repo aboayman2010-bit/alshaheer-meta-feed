@@ -1,6 +1,12 @@
 name: Publish Savings to Meta
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'magazine_preview.py'
+      - 'export_feed.py'
+      - '.github/workflows/publish_savings.yml'
   schedule:
     - cron: '17 * * * *'
 permissions:
