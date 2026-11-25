@@ -101,12 +101,18 @@ def main():
     key = os.getenv("EASYORDERS_API_KEY", "").strip()
     if not key:
         raise RuntimeError("Missing EASYORDERS_API_KEY secret")
-    data, report = make_feed(read_products(key))
+    products = read_products(key)
+    data, report = make_feed(products)
     OUT.mkdir(exist_ok=True)
     (OUT / "supplementary_savings.csv").write_bytes(data)
     (OUT / "status.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     (OUT / ".nojekyll").write_text("", encoding="utf-8")
-    (OUT / "index.html").write_text('<html><meta charset="utf-8"><body><a href="supplementary_savings.csv">Meta Savings CSV</a></body></html>', encoding="utf-8")
+    from magazine_preview import make_page
+    try:
+        make_page(products, OUT)
+    except Exception as exc:
+        print("MAGAZINE PREVIEW NOT GENERATED:", str(exc), flush=True)
+    (OUT / "index.html").write_text('<html lang="ar"><meta charset="utf-8"><body dir="rtl"><h2>هايبر الشهير</h2><p><a href="magazine-demo.html">معاينة صفحة المجلة التجريبية</a></p><p><a href="supplementary_savings.csv">Meta Savings CSV</a></p></body></html>', encoding="utf-8")
     print("SUCCESS", report, flush=True)
 
 if __name__ == "__main__":
